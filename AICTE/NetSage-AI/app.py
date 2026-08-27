@@ -303,7 +303,7 @@ st.markdown('<div class="ns-kicker">SYS // DIAGNOSTIC CONSOLE · HUMAN-IN-THE-LO
 st.title("NetSage AI | Network Diagnostics")
 st.markdown('<div class="ns-trace"></div>', unsafe_allow_html=True)
 
-tab1, tab2 = st.tabs(["🧑‍💻 Chatbot (Junior Engineer)", "📈 Dashboard (Reviewer)"])
+tab1, tab2 = st.tabs(["NOVA", "| 📈Dashboard"])
 
 # ================= TAB 1: Chatbot =================
 with tab1:
