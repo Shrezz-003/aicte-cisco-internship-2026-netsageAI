@@ -1,0 +1,417 @@
+case_id,topology_name,fault_category,osi_layer,concept_tag,what_was_broken,symptom_description,show_command_used,show_command_output,expected_root_cause,expected_fix,severity,notes,case_type
+C001,Lab1_TwoVLAN,VLAN,Layer2,Port in wrong VLAN,interface Fa0/3 -> switchport access vlan 30 (should be vlan 10),"PC1 connected to Fa0/3 cannot ping PC2 (same department, VLAN 10); PC1 has a valid IP, no cable/link light issue.",show vlan brief,"Switch#show vlan brief
+
+VLAN Name                             Status    Ports
+---- -------------------------------- --------- -------------------------------
+1    default                          active    Fa0/5, Fa0/6, Fa0/7, Fa0/8
+10   Sales                            active    Fa0/1, Fa0/2
+30   Guest                            active    Fa0/3, Fa0/4
+1002 fddi-default                     act/unsup
+1003 token-ring-default              act/unsup
+1004 fddinet-default                  act/unsup
+1005 trnet-default                    act/unsup","Switchport Fa0/3 is a member of VLAN 30 (Guest) instead of VLAN 10 (Sales), so it is Layer-2 isolated from the rest of Sales even though cabling/IP addressing is fine.","1. Console/SSH into the switch and enter privileged/config mode: enable -> configure terminal
+2. Move into the affected interface: interface FastEthernet0/3
+3. Re-assign to the correct VLAN: switchport access vlan 10
+4. Exit and verify: show vlan brief -- confirm Fa0/3 now lists under VLAN 10
+5. Re-test connectivity from PC1 to PC2 with a ping; also check 'show interfaces status' to confirm the port is connected and not err-disabled.",Medium,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C002,Lab1_TwoVLAN,VLAN,Layer2,Trunk missing allowed VLAN,switchport trunk allowed vlan remove 10 on the inter-switch trunk,All VLAN 10 devices on Switch2 lost contact with VLAN 10 devices on Switch1; VLAN 30 between the switches still works fine.,show interfaces trunk,"Switch1#show interfaces trunk
+
+Port        Mode         Encapsulation  Status        Native vlan
+Gi0/1       on           802.1q         trunking      1
+
+Port        Vlans allowed on trunk
+Gi0/1       1,30
+
+Port        Vlans allowed and active in management domain
+Gi0/1       1,30
+
+Port        Vlans in spanning tree forwarding state and not pruned
+Gi0/1       1,30","VLAN 10 has been removed from the trunk's allowed-VLAN list on Gi0/1, so VLAN 10 traffic is never carried across the trunk between switches.","1. Identify the trunk interface with the problem: show interfaces trunk (note which VLANs are missing from 'Vlans allowed on trunk')
+2. Enter the interface: interface GigabitEthernet0/1
+3. Re-add the missing VLAN: switchport trunk allowed vlan add 10
+4. Verify with show interfaces trunk again -- VLAN 10 should now appear in the allowed list
+5. Confirm end-to-end connectivity is restored between VLAN 10 hosts on both switches.",High,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C003,Lab1_TwoVLAN,VLAN,Layer2,Native VLAN mismatch,switchport trunk native vlan 99 on one end of the trunk only,Intermittent/odd connectivity issues on the trunk; switch logs show a CDP native VLAN mismatch warning between the two switches.,show interfaces trunk,"Switch1#show interfaces trunk
+Port        Mode         Encapsulation  Status        Native vlan
+Gi0/1       on           802.1q         trunking      99
+
+%CDP-4-NATIVE_VLAN_MISMATCH: Native VLAN mismatch discovered on GigabitEthernet0/1 (99), with Switch2 GigabitEthernet0/1 (1).","The two ends of the 802.1Q trunk have different native VLANs configured (99 on Switch1, 1 on Switch2), which can leak untagged traffic between VLANs and trigger CDP warnings.","1. Check both ends of the trunk: show interfaces trunk on Switch1 AND Switch2, compare the 'Native vlan' column
+2. Decide the correct/standard native VLAN for your design (commonly VLAN 1, or a dedicated unused VLAN for security)
+3. On the mismatched switch: interface Gi0/1 -> switchport trunk native vlan 1
+4. Verify the CDP warning clears and both switches report the same native VLAN
+5. Best practice note for your report: using a dedicated, unused native VLAN (not VLAN 1) is a common security hardening step -- mention this as an optional improvement.",Medium,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C004,Lab1_TwoVLAN,VLAN,Layer2,VLAN not created,no vlan 20 (deleted VLAN 20 from the VLAN database),"All PCs configured for access port VLAN 20 show zero connectivity, including to devices on the same switch.",show vlan brief,"Switch#show vlan brief
+
+VLAN Name                             Status    Ports
+---- -------------------------------- --------- -------------------------------
+1    default                          active    Fa0/5, Fa0/6
+10   Sales                            active    Fa0/1, Fa0/2
+(No entry for VLAN 20 -- ports Fa0/3, Fa0/4 assigned to it are now inactive)
+
+Switch#show interfaces Fa0/3 switchport
+Name: Fa0/3
+Switchport: Enabled
+Administrative Mode: static access
+Access Mode VLAN: 20 (Inactive)","VLAN 20 does not exist in the switch's VLAN database (it was deleted), so any port statically assigned to VLAN 20 becomes inactive even though it's administratively configured correctly.","1. Confirm the issue: show vlan brief -- notice VLAN 20 is absent, and show interfaces <port> switchport shows 'Access Mode VLAN: 20 (Inactive)'
+2. Recreate the VLAN: configure terminal -> vlan 20 -> name Engineering -> exit
+3. Verify recreation: show vlan brief -- VLAN 20 should reappear with its assigned ports listed as active
+4. Test connectivity from an affected PC to confirm the port and VLAN are functional again.",High,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C005,Lab1_TwoVLAN,VLAN,Layer2,Port mode dynamic auto/auto mismatch,"Both ends of an inter-switch link left at default 'switchport mode dynamic auto', preventing trunk negotiation","Devices in different VLANs across the two switches cannot reach each other at all, and the link between switches behaves like an access link instead of a trunk.",show interfaces status ; show interfaces switchport,"Switch1#show interfaces Gi0/1 switchport
+Name: Gi0/1
+Switchport: Enabled
+Administrative Mode: dynamic auto
+Operational Mode: static access
+Administrative Trunking Encapsulation: negotiate
+Negotiation of Trunking: On","Both ends of the link are set to 'dynamic auto', which passively waits for the other side to initiate trunk negotiation -- since neither side actively initiates, DTP never forms a trunk and the link stays an access link.","1. Check both switches: show interfaces <port> switchport -- if both report 'Administrative Mode: dynamic auto', that's the issue
+2. On at least one end (or both, for clarity/best practice), force trunk mode: interface Gi0/1 -> switchport mode trunk
+3. Also explicitly allow the required VLANs: switchport trunk allowed vlan 10,30
+4. Re-verify with show interfaces trunk that the link now shows 'Operational Mode: trunk' on both ends
+5. Best-practice note: manually setting trunk/access mode (rather than relying on DTP auto-negotiation) is recommended in production networks for predictability and security.",High,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C006,Lab1_TwoVLAN,Gateway,Layer3,Wrong default gateway on host,PC1 static IP config set default gateway to 192.168.10.254 instead of 192.168.10.1,PC1 can ping other hosts on its own subnet but cannot reach any remote subnet or the internet.,ipconfig (on PC1),"PC1> ipconfig
+
+FastEthernet0 Connection:(default port)
+Link-local IPv6 Address.......: fe80::...
+IP Address.....................: 192.168.10.20
+Subnet Mask.....................: 255.255.255.0
+Default Gateway.................: 192.168.10.254","PC1's configured default gateway (192.168.10.254) does not exist / does not match the router's actual LAN interface IP (192.168.10.1), so any traffic destined off-subnet has nowhere to go.","1. Confirm the router's real gateway IP: on the router, show ip interface brief -- note the IP on the LAN-facing interface (e.g. Gi0/0.10 = 192.168.10.1)
+2. On PC1's IP configuration (Desktop > IP Configuration in Packet Tracer), correct Default Gateway to 192.168.10.1
+3. Re-test with ping to a remote subnet or the router itself
+4. If several PCs are affected, check whether this was a manual typo or a DHCP pool misconfiguration (see DHCP cases) rather than fixing each PC individually.",Medium,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C007,Lab3_Routing,Gateway,Layer3,Gateway interface administratively down,interface Gi0/0 -> shutdown (on the router's LAN-facing interface),"Every device on that LAN segment loses connectivity to everything, including other local devices normally reachable through the router -- essentially a total outage for that subnet.",show ip interface brief,"Router#show ip interface brief
+Interface              IP-Address      OK? Method Status                Protocol
+GigabitEthernet0/0     192.168.10.1    YES manual administratively down down
+GigabitEthernet0/1     192.168.20.1    YES manual up                    up
+Serial0/0/0             203.0.113.1    YES manual up                    up","The router's Gi0/0 interface (the gateway for the 192.168.10.0/24 LAN) has been administratively shut down, taking the entire subnet's gateway offline.","1. Identify the down interface: show ip interface brief -- look for 'administratively down' in the Status column
+2. Enter the interface and re-enable it: interface GigabitEthernet0/0 -> no shutdown
+3. Re-check status: show ip interface brief -- should now show 'up / up'
+4. Test connectivity from a PC on that subnet to confirm the gateway and beyond are reachable again.",High,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C008,Lab3_Routing,Gateway,Layer3,Gateway on wrong subnet,Router LAN interface re-addressed to 192.168.99.1/24 instead of 192.168.10.1/24,No host on the LAN can reach the router at all; PCs report destination host unreachable or requests time out even for the gateway's own IP.,show ip interface brief ; ping 192.168.10.1 (from PC),"Router#show ip interface brief
+Interface              IP-Address      OK? Method Status   Protocol
+GigabitEthernet0/0     192.168.99.1    YES manual up       up
+
+PC1> ping 192.168.10.1
+
+Pinging 192.168.10.1 with 32 bytes of data:
+Request timed out.
+Request timed out.
+Request timed out.
+Request timed out.
+
+Ping statistics for 192.168.10.1:
+    Packets: Sent = 4, Received = 0, Lost = 4 (100% loss)","The router's LAN interface has been reconfigured onto a completely different subnet (192.168.99.0/24) than the hosts (192.168.10.0/24), so ARP for the expected gateway IP never resolves.","1. Confirm the mismatch: compare show ip interface brief on the router against ipconfig on an affected PC
+2. Correct the router's interface IP to match the host subnet: interface Gi0/0 -> ip address 192.168.10.1 255.255.255.0
+3. Re-verify: show ip interface brief, then ping from a PC to the corrected gateway IP
+4. If DHCP is in use, also confirm the DHCP pool's network/default-router statements match the corrected subnet.",High,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C009,Lab3_Routing,Gateway,Layer3,Duplicate IP with gateway,PC3 manually assigned the same IP as the router's gateway interface (192.168.10.1),Multiple hosts on the subnet experience intermittent connectivity loss; some PCs show a 'duplicate IP address' warning.,show ip arp (on router) ; PC warning dialog,"Router#show ip arp
+Protocol  Address          Age (min)  Hardware Addr     Type   Interface
+Internet  192.168.10.1              -   0001.42A2.C001    ARPA   GigabitEthernet0/0
+
+PC3 Windows warning: There is an IP address conflict with another system on the network","A host (PC3) has been manually configured with the same IP address as the router's gateway interface, causing an IP/ARP conflict that disrupts traffic for multiple hosts.","1. Identify the conflicting host from the duplicate-IP warning or by checking ipconfig on suspect PCs
+2. Reassign PC3 to a free, correct address in the subnet (e.g. 192.168.10.25), avoiding the gateway address and any DHCP-reserved range
+3. Release/renew IP on affected devices if using DHCP: ipconfig /release then ipconfig /renew
+4. Re-verify with show ip arp on the router that only one MAC address maps to the gateway IP.",Medium,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C010,Lab2_DHCP_DNS,DHCP,Layer3,DHCP pool exhausted,"ip dhcp pool LAN_POOL -> network 192.168.10.0 255.255.255.252 (shrunk to a /30, only 2 usable addresses)",New PCs connecting to the network fail to get an IP address and self-assign a 169.254.x.x APIPA address.,show ip dhcp pool ; show ip dhcp binding,"Router#show ip dhcp pool
+
+Pool LAN_POOL :
+ Utilization mark (high/low)    : 100 / 0
+ Subnet size (first/next)       : 0 / 0
+ Total addresses                : 2
+ Leased addresses               : 2
+ Pending event                  : none
+
+Router#show ip dhcp binding
+IP address       Client-ID/            Lease expiration        Type
+                  Hardware address
+192.168.10.1      0100.1234.5678       Aug 24 2026 11:59 AM      Automatic
+192.168.10.2      0100.9876.5432       Aug 24 2026 11:59 AM      Automatic","The DHCP pool's network statement defines an address space far too small (/30 = 2 usable addresses) for the number of clients, so the pool is fully leased out and rejects new requests.","1. Confirm exhaustion: show ip dhcp pool -- 'Leased addresses' equal to 'Total addresses' confirms the pool is full
+2. Correct the pool's subnet size to match the actual LAN: ip dhcp pool LAN_POOL -> network 192.168.10.0 255.255.255.0
+3. Adjust any ip dhcp excluded-address ranges if needed so the usable range is appropriately sized
+4. Release/renew on an affected client (ipconfig /release, ipconfig /renew) and confirm it now receives a valid address.",High,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C011,Lab2_DHCP_DNS,DHCP,Layer3,DHCP service disabled globally,no service dhcp entered on the router,"No client on the network receives an IP address via DHCP at all, even though the pool configuration itself looks correct.",show run | include service dhcp,"Router#show run | include service dhcp
+no service dhcp","The DHCP server function is globally disabled on the router with 'no service dhcp', so it will not respond to any DHCP requests regardless of pool configuration.","1. Check global DHCP status: show run | include service dhcp
+2. Re-enable the service: configure terminal -> service dhcp
+3. Re-verify: show run | include service dhcp should no longer show the 'no service dhcp' line
+4. Test from a client with ipconfig /release then ipconfig /renew.",High,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C012,Lab2_DHCP_DNS,DHCP,Layer3,Wrong default-router in pool,ip dhcp pool default-router set to 192.168.10.254 (nonexistent) instead of 192.168.10.1,"Clients receive a valid IP address via DHCP successfully, but none of them can reach any remote network or the internet.",show run | section dhcp ; ipconfig /all (on PC),"Router#show run | section dhcp
+ip dhcp pool LAN_POOL
+ network 192.168.10.0 255.255.255.0
+ default-router 192.168.10.254
+ dns-server 192.168.10.53
+
+PC1> ipconfig /all
+   IP Address.....................: 192.168.10.20
+   Default Gateway.................: 192.168.10.254","The DHCP pool is handing out an incorrect default-router (gateway) address that doesn't correspond to any live interface, so clients get an IP but have no working path off-subnet.","1. Confirm the router's true gateway IP: show ip interface brief
+2. Fix the pool: ip dhcp pool LAN_POOL -> default-router 192.168.10.1
+3. Release/renew on a client to pick up the corrected gateway: ipconfig /release, ipconfig /renew
+4. Confirm with ipconfig /all that the new gateway matches, then test connectivity to a remote subnet.",Medium,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C013,Lab2_DHCP_DNS,DHCP,Layer3,Excluded address range too broad,ip dhcp excluded-address 192.168.10.1 192.168.10.254 (excludes the entire usable range),"No client receives any IP address from DHCP, even though the pool and network statement both appear correctly configured.",show run | include excluded-address,"Router#show run | include excluded-address
+ip dhcp excluded-address 192.168.10.1 192.168.10.254","The excluded-address range covers the entire usable host range of the subnet, leaving the DHCP pool with zero addresses actually available to lease.","1. Check exclusions: show run | include excluded-address
+2. Narrow the exclusion to just what's actually reserved (typically the gateway and any static servers): no ip dhcp excluded-address 192.168.10.1 192.168.10.254, then ip dhcp excluded-address 192.168.10.1 192.168.10.10
+3. Verify pool availability: show ip dhcp pool -- 'Total addresses' should now be meaningfully greater than 0
+4. Test a client renewal to confirm it now receives an address.",High,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C014,Lab2_DHCP_DNS,DNS,Layer7,Wrong DNS server address in DHCP,ip dhcp pool dns-server set to 8.8.4.4 instead of internal DNS 192.168.10.53,Users can browse to internal servers by IP address but typing a hostname/website fails with a 'server not found' style error.,show run | section dhcp ; nslookup (on PC),"Router#show run | section dhcp
+ip dhcp pool LAN_POOL
+ network 192.168.10.0 255.255.255.0
+ default-router 192.168.10.1
+ dns-server 8.8.4.4
+
+PC1> nslookup fileserver.local
+DNS request timed out.
+*** Request to 8.8.4.4 timed-out","The DHCP-assigned DNS server (8.8.4.4, a public resolver) cannot resolve the organization's internal hostnames, and/or is unreachable from this isolated lab topology.","1. Identify the intended internal DNS server's IP (e.g. 192.168.10.53, hosted on the internal Server device)
+2. Correct the pool: ip dhcp pool LAN_POOL -> dns-server 192.168.10.53
+3. Release/renew the affected client and re-test with nslookup fileserver.local
+4. If external resolution is also required, configure DNS forwarding on the internal server to a reachable public resolver.",Medium,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C015,Lab2_DHCP_DNS,DNS,Layer7,DNS server unreachable,Interface connecting to the internal DNS server shut down,"All clients lose the ability to resolve any hostname, even though their DNS server setting is correct.",ping <dns-server-ip> ; show ip interface brief (on the connecting switch/router),"PC1> ping 192.168.10.53
+
+Pinging 192.168.10.53 with 32 bytes of data:
+Request timed out.
+Request timed out.
+Request timed out.
+Request timed out.
+
+Ping statistics for 192.168.10.53:
+    Packets: Sent = 4, Received = 0, Lost = 4 (100% loss)",The internal DNS server (192.168.10.53) is unreachable at the network layer -- most likely its uplink interface is down or the device itself is powered off -- so DNS queries never get a response regardless of correct client configuration.,"1. Confirm reachability first with a basic ping to the DNS server's IP -- if that fails, this is a connectivity issue, not a DNS configuration issue
+2. Check the server's own network settings and the switch port/interface it connects through: show ip interface brief on the relevant device
+3. Re-enable any shut interfaces (no shutdown) or verify the server device is powered on in Packet Tracer
+4. Once ping to 192.168.10.53 succeeds, re-test DNS resolution with nslookup from a client.",High,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C016,Lab2_DHCP_DNS,DNS,Layer7,Static DNS override on one PC,"PC4's network adapter manually set to use DNS server 1.1.1.99 (invalid), overriding DHCP",One specific PC cannot resolve any hostname while every other PC on the same network resolves normally.,ipconfig /all (on PC4),"PC4> ipconfig /all
+   IP Address.....................: 192.168.10.24
+   Subnet Mask......................: 255.255.255.0
+   Default Gateway...................: 192.168.10.1
+   DNS Servers........................: 1.1.1.99","PC4 has a manually configured (static) DNS server address that is invalid/unreachable, overriding whatever value it would have otherwise received via DHCP.","1. Since only one PC is affected, compare its ipconfig /all output against a working PC's -- the DNS Servers field is the key difference to look for
+2. On PC4, open IP Configuration and switch DNS back to 'DHCP' (automatic) mode, or manually correct it to 192.168.10.53
+3. If DHCP mode is used, run ipconfig /release then ipconfig /renew to pick up the correct value
+4. Re-test with nslookup to confirm resolution now works.",Low,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C017,Lab2_DHCP_DNS,DNS,Layer7,Missing DNS record,A record for fileserver.local removed from the internal DNS server's zone,"Clients can resolve most hostnames normally, but one specific server name consistently fails to resolve.",nslookup fileserver.local,"PC1> nslookup fileserver.local
+Server:  dns.local
+Address:  192.168.10.53
+
+*** dns.local can't find fileserver.local: Non-existent domain","The DNS server itself is reachable and answering queries correctly, but the specific A record for fileserver.local is missing from its zone data, so it correctly reports the name doesn't exist.","1. Confirm the DNS server is otherwise healthy by resolving a different, working hostname first
+2. Open the DNS service configuration on the internal Server device in Packet Tracer
+3. Add the missing A record: name = fileserver.local, type = A, address = <fileserver's real IP>
+4. Re-test with nslookup fileserver.local from a client to confirm resolution now succeeds.",Medium,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C018,Lab3_Routing,Routing,Layer3,Missing static route,ip route 192.168.20.0 255.255.255.0 <next-hop> removed from Router A,Site A hosts cannot reach any Site B host; local Site A communication is unaffected.,show ip route,"RouterA#show ip route
+Gateway of last resort is not set
+
+     192.168.10.0/24 is variably subnetted, 2 subnets, 2 masks
+C       192.168.10.0/24 is directly connected, GigabitEthernet0/0
+C       192.168.30.0/30 is directly connected, Serial0/0/0
+     (no route to 192.168.20.0/24)","There is no routing table entry for the remote 192.168.20.0/24 subnet (Site B), so Router A has no idea how to forward traffic destined there and silently drops it.","1. Confirm the missing route: show ip route on Router A -- look for the absence of a 192.168.20.0/24 entry
+2. Re-add the static route: ip route 192.168.20.0 255.255.255.0 192.168.30.2 (use your actual next-hop IP or exit interface)
+3. Re-verify: show ip route should now show an 'S' (static) entry for 192.168.20.0/24
+4. Also check Router B has a return route back to 192.168.10.0/24 -- see the asymmetric routing case for why this matters.",High,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C019,Lab3_Routing,Routing,Layer3,Wrong next-hop in static route,ip route 192.168.20.0 255.255.255.0 192.168.30.99 (wrong next-hop; actual is .2),Traceroute from Site A reaches the local router hop but fails immediately after; connectivity to Site B fails entirely.,show ip route ; tracert (from PC),"RouterA#show ip route
+S    192.168.20.0/24 [1/0] via 192.168.30.99
+
+PC1> tracert 192.168.20.10
+ 1   2 ms   1 ms   1 ms  192.168.10.1
+ 2   *      *      *     Request timed out.
+ 3   *      *      *     Request timed out.","The static route's next-hop IP (192.168.30.99) does not correspond to any real, reachable router interface -- the actual next hop is 192.168.30.2 -- so packets forwarded there are dropped.","1. Identify the correct next-hop by checking the connected router's interface: show ip interface brief on Router B (should show 192.168.30.2 on the shared link)
+2. Remove the bad route and add the correct one: no ip route 192.168.20.0 255.255.255.0 192.168.30.99, then ip route 192.168.20.0 255.255.255.0 192.168.30.2
+3. Verify: show ip route, then re-run tracert from a Site A PC to confirm all hops now respond.",High,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C020,Lab3_Routing,Routing,Layer3,OSPF network statement missing,network 192.168.20.0 0.0.0.255 area 0 removed from OSPF process,"OSPF neighbor relationships form fine, but hosts on one specific subnet are unreachable from the rest of the OSPF domain.",show ip protocols ; show ip route,"RouterB#show ip protocols
+Routing Protocol is ""ospf 1""
+  Router ID 2.2.2.2
+  Routing for Networks:
+    192.168.10.0 0.0.0.255 area 0
+  (192.168.20.0/24 network statement missing)
+
+RouterA#show ip route
+     (no OSPF-learned route to 192.168.20.0/24)","OSPF is not advertising the 192.168.20.0/24 network because its 'network' statement was removed from the OSPF process on the router that owns that subnet, so no other router in the domain learns a route to it.","1. On the router that owns the missing subnet, check current advertisements: show ip protocols
+2. Re-enter OSPF configuration and add the network statement: router ospf 1 -> network 192.168.20.0 0.0.0.255 area 0
+3. Verify the route propagates: on a remote router, show ip route -- an 'O' (OSPF) entry for 192.168.20.0/24 should appear within seconds
+4. Confirm end-to-end reachability with a ping from a remote-subnet host.",High,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C021,Lab3_Routing,Routing,Layer3,OSPF area mismatch,Serial interface OSPF area changed to area 1 on one router while the neighbor stays in area 0,OSPF neighbor adjacency gets stuck (state stays in EXSTART or never reaches FULL); no routes are learned across that link.,show ip ospf neighbor,"RouterA#show ip ospf neighbor
+
+Neighbor ID     Pri   State           Dead Time   Address         Interface
+2.2.2.2          1    EXSTART/  -     00:00:32    192.168.30.2    Serial0/0/0","The two routers have configured the shared link's interface under different OSPF areas, which prevents the adjacency from ever completing (stuck below FULL state).","1. Compare area assignment on both sides: show ip protocols on each router, checking the network statement's area number for the shared link
+2. Correct the mismatched router to use the same area as its neighbor: router ospf 1 -> network 192.168.30.0 0.0.0.3 area 0 (matching the correct area)
+3. Clear the OSPF process to force renegotiation if needed: clear ip ospf process
+4. Verify with show ip ospf neighbor that the state reaches FULL.",Medium,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C022,Lab3_Routing,Routing,Layer3,One-way (asymmetric) static routing,"Static route to Site B added on Router A, but no return route to Site A configured on Router B","Site A can successfully ping Site B, but Site B cannot ping back to Site A -- one-directional connectivity.",show ip route (on both routers),"RouterA#show ip route
+S    192.168.20.0/24 [1/0] via 192.168.30.2
+
+RouterB#show ip route
+     192.168.30.0/24 is directly connected, Serial0/0/0
+     (no route to 192.168.10.0/24 present)","Router A has a route to Site B's subnet, but Router B has no corresponding route back to Site A's subnet -- so replies from Site B (or Site B-initiated traffic) can never find their way back.","1. Always check routing tables on BOTH ends of a suspected asymmetric issue, not just where the symptom was reported: show ip route on Router A AND Router B
+2. Add the missing return route on Router B: ip route 192.168.10.0 255.255.255.0 192.168.30.1
+3. Verify: show ip route on Router B should now list the new static route
+4. Re-test bidirectionally -- ping Site A to Site B, then Site B to Site A -- to confirm symmetry is restored.",Medium,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C023,Lab4_ACL_NAT,ACL,Layer3/4,Deny placed before permit,access-list 101 line 5 deny ip any any inserted above the permit tcp any any eq 80 line,"Internal hosts cannot reach the external web server on port 80, despite correct routing and NAT.",show access-lists,"Router#show access-lists
+Extended IP access list 101
+    5 deny ip any any (312 matches)
+    10 permit tcp any any eq www",The ACL evaluates top-down and stops at the first match -- the 'deny ip any any' at sequence 5 catches all traffic before it ever reaches the intended 'permit tcp any any eq 80' rule at sequence 10.,"1. View the ACL in evaluation order: show access-lists -- note the sequence numbers and which line is matching traffic (check the 'matches' counter)
+2. Remove the misplaced deny: configure terminal -> ip access-list extended 101 -> no 5 deny ip any any
+3. Optionally re-insert it correctly at the end: 30 deny ip any any log (explicit deny with logging, placed last)
+4. Verify with show access-lists that permit lines are now evaluated before any catch-all deny
+5. Re-test web access from an internal host.",High,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C024,Lab4_ACL_NAT,ACL,Layer3/4,ACL applied to wrong interface/direction,ip access-group 101 in applied to the internal LAN-facing interface instead of the internet-facing one,"Traffic from internal hosts to the internet is blocked, while traffic between internal subnets works normally.",show ip interface Gi0/0 | include access list,"Router#show ip interface GigabitEthernet0/0 | include access list
+  Outgoing access list is not set
+  Inbound  access list is 101","ACL 101 was applied inbound on Gi0/0 (the internal LAN interface) rather than the intended internet-facing interface, so it's filtering traffic in the wrong place/direction relative to the design intent.","1. Confirm which interface/direction the ACL is currently applied to: show ip interface <int> | include access list, for each candidate interface
+2. Remove it from the wrong interface: interface Gi0/0 -> no ip access-group 101 in
+3. Apply it correctly on the intended interface and direction (e.g. outbound on the internet-facing interface, or inbound where traffic actually needs filtering per your design): interface Gi0/1 -> ip access-group 101 out
+4. Re-verify placement and re-test the originally blocked traffic.",Medium,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C025,Lab4_ACL_NAT,ACL,Layer3/4,"ACL too narrow, blocks needed traffic","access-list 110 written to permit only tcp any any eq 80, with no other permits","Web browsing works, but ping and DNS lookups from the same hosts fail entirely.",show access-lists,"Router#show access-lists
+Extended IP access list 110
+    10 permit tcp any any eq www (88 matches)
+    (implicit deny ip any any at end -- not shown, but always present)","The ACL only explicitly permits TCP port 80; every other protocol/port (ICMP for ping, UDP/53 for DNS) falls through to the implicit 'deny ip any any' that exists at the end of every ACL.","1. Identify exactly what the ACL currently permits: show access-lists -- remember there's always an invisible 'deny ip any any' at the end
+2. Add explicit permits for each additional required protocol: ip access-list extended 110 -> permit icmp any any -> permit udp any any eq 53 -> permit tcp any any eq 53 (DNS can use TCP too)
+3. Consider adding a final explicit 'deny ip any any log' for visibility into what's being blocked, rather than relying on the silent implicit deny
+4. Re-test ping and nslookup from an affected host.",Medium,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C026,Lab4_ACL_NAT,ACL,Layer3/4,Wrong wildcard mask,access-list 105 permit ip 192.168.10.0 0.0.0.15 any (wildcard too narrow for a /24),"Some hosts in the subnet can reach the destination while others in the same /24 subnet cannot, seemingly at random by IP address.",show access-lists,"Router#show access-lists
+Extended IP access list 105
+    10 permit ip 192.168.10.0 0.0.0.15 any (matches only .1-.15 range)","The wildcard mask 0.0.0.15 only covers a 16-address block (a /28), not the intended full /24 subnet (which needs wildcard 0.0.0.255) -- so hosts outside the .1-.15 range fall through to the implicit deny.","1. Recalculate the correct wildcard mask for your intended subnet size: for a /24 (255.255.255.0), the wildcard is 0.0.0.255 (subnet mask and wildcard are inverses of each other)
+2. Correct the ACL line: no 10 permit ip 192.168.10.0 0.0.0.15 any, then 10 permit ip 192.168.10.0 0.0.0.255 any
+3. Verify with show access-lists that the corrected wildcard is in place
+4. Re-test from a previously-blocked host (e.g. 192.168.10.50) to confirm it now matches the permit rule.",Medium,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C027,Lab4_ACL_NAT,NAT,Layer3,NAT overload statement removed,no ip nat inside source list 1 interface Gi0/1 overload,Internal PCs can ping each other but cannot reach any internet host.,show ip nat translations ; show run | include ip nat inside source,"Router#show ip nat translations
+(no active translations)
+
+Router#show run | include ip nat inside source
+(no matching lines found)","NAT/PAT (overload) is not configured at all, so internal private IP addresses are never translated to a routable public address for internet-bound traffic.","1. Confirm NAT config is absent: show run | include ip nat inside source
+2. Re-add the overload statement, referencing your NAT ACL and outside interface: ip nat inside source list 1 interface GigabitEthernet0/1 overload
+3. Confirm the ACL referenced (access-list 1) correctly permits the internal subnet
+4. Verify interfaces are marked correctly (see next case) and re-test internet access from an internal PC
+5. Check show ip nat translations again -- active entries should now appear as traffic flows.",High,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C028,Lab4_ACL_NAT,NAT,Layer3,Interfaces not marked inside/outside,ip nat inside / ip nat outside commands removed from the respective interfaces,"NAT configuration exists and looks syntactically correct, but no translations ever occur.",show ip nat statistics,"Router#show ip nat statistics
+Total active translations: 0
+Outside interfaces:
+Inside interfaces:
+Hits: 0  Misses: 0","Neither interface is marked as NAT inside or outside, so even though the 'ip nat inside source' statement exists, the router has no way of knowing which traffic direction to translate.","1. Check current inside/outside assignment: show ip nat statistics -- note the empty Inside/Outside interfaces lists
+2. Mark the LAN interface as inside: interface Gi0/0 -> ip nat inside
+3. Mark the internet-facing interface as outside: interface Gi0/1 -> ip nat outside
+4. Re-verify: show ip nat statistics should now list both interfaces correctly
+5. Re-test internet access and confirm show ip nat translations populates with active entries.",High,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C029,Lab4_ACL_NAT,NAT,Layer3,NAT source ACL missing a subnet,access-list 1 permit 192.168.10.0 0.0.0.255 only (missing 192.168.20.0/24),One internal subnet reaches the internet fine via NAT; a second internal subnet gets no internet access at all.,show run | include access-list 1,"Router#show run | include access-list 1
+access-list 1 permit 192.168.10.0 0.0.0.255","The ACL that defines which internal traffic gets NAT-translated only covers the first subnet (192.168.10.0/24); the second subnet (192.168.20.0/24) is never matched, so it's never translated and can't reach the internet.","1. Compare which subnets exist internally against what's permitted: show run | include access-list 1, and show ip route or show vlan brief for the full list of internal subnets
+2. Add the missing subnet to the ACL: access-list 1 permit 192.168.20.0 0.0.0.255
+3. Re-verify: show access-lists 1 should now show both permit lines
+4. Re-test internet access from a host on the previously-unaffected... previously affected subnet.",Medium,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C030,Lab4_ACL_NAT,NAT,Layer3,Static NAT wrong internal target,ip nat inside source static tcp 192.168.10.99 80 203.0.113.5 80 (wrong internal IP; real server is .50),External users trying to reach the published web server land on the wrong internal host / get no response.,show ip nat translations,"Router#show ip nat translations
+Pro Inside global         Inside local          Outside local      Outside global
+tcp 203.0.113.5:80        192.168.10.99:80      ---                ---",The static NAT mapping publishes the public IP/port to the wrong internal host (192.168.10.99) instead of the actual web server (192.168.10.50).,"1. Confirm the real web server's IP: check the server's own IP configuration or DHCP binding
+2. Remove the incorrect static mapping: no ip nat inside source static tcp 192.168.10.99 80 203.0.113.5 80
+3. Add the correct mapping: ip nat inside source static tcp 192.168.10.50 80 203.0.113.5 80
+4. Verify: show ip nat translations shows the corrected Inside local address
+5. Re-test from an external/simulated-internet host by browsing to 203.0.113.5.",Medium,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C031,Lab5_Wireless,Wireless,Layer2,WPA2 passphrase mismatch,AP's WPA2-PSK passphrase changed without updating client wireless profiles,Wireless clients see the SSID in range but fail to authenticate/connect.,Client wireless connection status,"PC-Wireless> Connection Status
+SSID: CorpWiFi
+Security: WPA2-PSK
+Status: Authentication Failed - Incorrect Password","The passphrase configured on the AP no longer matches the passphrase saved in client wireless profiles, so WPA2 4-way handshake authentication fails.","1. Confirm the current AP passphrase in its configuration GUI/CLI
+2. Update every affected client's saved wireless profile to match: Desktop > PC Wireless > Connect, re-enter the correct passphrase
+3. For a fleet of devices, consider documenting the change and notifying users rather than fixing one at a time
+4. Re-verify connection status shows 'Associated' / 'Connected' after reconnecting.",Medium,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C032,Lab5_Wireless,Wireless,Layer2,SSID broadcast disabled,AP configured with broadcast-ssid disable,Wireless clients cannot see the network name in their available-networks scan at all.,show run (on AP/WLC),"AP#show run | include ssid
+wlan CorpWiFi
+ broadcast-ssid disable","SSID broadcast is disabled on the AP, so it doesn't announce its network name in beacon frames -- clients doing a normal scan simply never see it listed.","1. Confirm the setting: check the AP's wireless configuration for a 'broadcast SSID' / 'hidden network' toggle
+2. If broadcasting was unintentionally disabled, re-enable it: wlan CorpWiFi -> no broadcast-ssid disable
+3. If hiding the SSID is intentional (a security choice), instead manually configure the SSID name on each client (Windows: 'connect to a hidden network')
+4. Re-test that clients can see (or manually connect to) the network as intended.",Low,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C033,Lab5_Wireless,Wireless,Layer2,Band/channel unsupported by client,"AP set to broadcast only on 5GHz, channel 149","One specific device (older wireless adapter) cannot see or connect to the network, while newer devices connect fine.",Client wireless adapter properties,"PC-Wireless (older model)> Adapter properties
+Supported bands: 2.4GHz only
+AP broadcasting: 5GHz, Channel 149 (not visible to this adapter)","The AP is broadcasting exclusively on 5GHz, which the affected client's wireless adapter hardware does not support (2.4GHz only), so it simply never appears in that device's scan results.","1. Check the affected device's supported bands in its adapter properties
+2. On the AP, enable dual-band broadcasting or add a 2.4GHz SSID alongside the 5GHz one, if hardware supports it
+3. If the AP is single-radio 5GHz-only, the practical fix is a hardware/adapter upgrade for the affected client, or a secondary 2.4GHz AP
+4. Document this as a hardware compatibility issue rather than a configuration error in your review log.",Medium,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C034,Lab5_Wireless,Wireless,Layer3,Wireless VLAN has no matching DHCP scope,"VLAN 50 (wireless) created and assigned to the AP's uplink, but no DHCP pool exists for 192.168.50.0/24",Wireless clients authenticate and associate successfully but never receive a usable IP address.,show vlan brief ; ipconfig (on wireless client),"Switch#show vlan brief
+50   Wireless                        active    Gi0/2
+
+PC-Wireless> ipconfig
+IP Address.....................: 169.254.12.45 (APIPA - no DHCP response)","The wireless VLAN (50) and its subnet (192.168.50.0/24) exist at Layer 2/3, but no DHCP pool has been configured to serve that subnet, so clients fall back to self-assigned APIPA addresses.","1. Confirm the wireless VLAN's subnet: check the SVI or router subinterface for VLAN 50 (e.g. 192.168.50.1/24)
+2. Create a matching DHCP pool: ip dhcp pool WIRELESS_POOL -> network 192.168.50.0 255.255.255.0 -> default-router 192.168.50.1 -> dns-server 192.168.50.53 (or your DNS IP)
+3. If the DHCP server is centralized elsewhere, also add ip helper-address 192.168.50.1... i.e. the relay address to the DHCP server, on the VLAN 50 interface
+4. Release/renew on a wireless client and confirm it now gets a 192.168.50.x address.",High,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C046,Lab1_TwoVLAN,Switching,Layer2,Port security violation shutdown,"switchport port-security maximum 1 configured, then a second device's MAC address appeared on the port",A PC that was working fine suddenly loses all connectivity after another device (e.g. a personal laptop) was plugged into the same wall jack temporarily.,show port-security interface Fa0/2,"Switch#show port-security interface Fa0/2
+Port Security              : Enabled
+Port Status                : Secure-shutdown
+Violation Mode              : Shutdown
+Maximum MAC Addresses        : 1
+Total MAC Addresses          : 1
+Last Source Address:Vlan     : 00E0.8F1A.2C3B:10
+Security Violation Count     : 1","Port security detected a second, unauthorized MAC address on a port limited to one, and per the configured violation mode (shutdown) it err-disabled the port.","1. Confirm the violation: show port-security interface Fa0/2 -- 'Port Status: Secure-shutdown' confirms this is a security shutdown, not a cable/hardware fault
+2. Identify the offending MAC/device from 'Last Source Address' and investigate whether it was authorized
+3. Re-enable the port: interface Fa0/2 -> shutdown -> no shutdown (or use 'errdisable recovery cause psecure-violation' for auto-recovery)
+4. If the new device is legitimate, either increase 'switchport port-security maximum' or clear the sticky MAC and let it relearn
+5. Re-verify with show port-security interface that the port returns to 'Secure-up'.",Medium,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C047,Lab1_TwoVLAN,Switching,Layer1/2,Duplex mismatch,One side of a link set to half-duplex while the other auto-negotiates to full-duplex,"Connection between two switches (or a switch and PC) is up but extremely slow and unreliable, with many retransmissions, despite both ends showing 'up'.",show interfaces Fa0/1,"Switch#show interfaces Fa0/1
+FastEthernet0/1 is up, line protocol is up
+  Full-duplex, 100Mb/s
+  ...
+  5 late collisions, 0 lost carrier
+  Input errors: 120, CRC: 45","A duplex mismatch (one side half, one side full) causes excessive late collisions and CRC errors, resulting in a link that appears 'up' but performs very poorly.","1. Check duplex/speed on both ends of the suspect link: show interfaces <port> on each device, look for high 'late collisions' or CRC error counts as a symptom
+2. Standardize both ends to the same setting -- best practice is 'auto' on both, or explicitly matching full-duplex on both: interface Fa0/1 -> duplex full -> speed 100
+3. Re-check error counters after the fix: show interfaces Fa0/1 -- late collisions should stop incrementing
+4. Re-test throughput/reliability across the link.",Medium,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C048,Lab3_Routing,Routing,Layer3,EIGRP autonomous system number mismatch,"Router A configured with 'router eigrp 100', Router B configured with 'router eigrp 200'","Two routers on a shared link never form an EIGRP neighbor relationship, despite matching IP addressing and no ACLs in the way.",show ip eigrp neighbors,"RouterA#show ip eigrp neighbors
+EIGRP-IPv4 Neighbors for AS(100)
+(no neighbors listed)",EIGRP requires both routers to use the same Autonomous System (AS) number to form a neighbor relationship; Router A (AS 100) and Router B (AS 200) will never see each other as valid EIGRP neighbors.,"1. Check each router's configured AS number: show run | include router eigrp
+2. Standardize both routers to the same AS number, matching your design (e.g. both to 100): no router eigrp 200, then router eigrp 100 -> network 192.168.30.0 0.0.0.3
+3. Re-verify: show ip eigrp neighbors should now list the other router
+4. Confirm routes are exchanged: show ip route should show 'D' (EIGRP) entries for the remote subnet.",High,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C049,Lab4_ACL_NAT,Routing/ACL,Layer3/4,MTU mismatch on a WAN link causing fragmentation issues,One router's serial/WAN interface MTU manually lowered to 1400 while the other end stays at default 1500,"Small packets (like pings) succeed, but large file transfers or certain websites time out or load partially across the WAN link.",show interfaces Serial0/0/0 | include MTU ; ping with large packet + do-not-fragment,"RouterA#show interfaces Serial0/0/0 | include MTU
+  MTU 1400 bytes, BW 1544 Kbit/sec
+
+PC1> ping 203.0.113.10 -l 1472 -f
+Packet needs to be fragmented but DF set.","An MTU mismatch between the two ends of the WAN link causes large packets to require fragmentation; when the Don't Fragment (DF) bit is set (common with many modern applications/OS defaults), those packets are dropped instead, causing intermittent large-transfer failures while small packets (like basic pings) succeed.","1. Compare MTU on both ends of the WAN link: show interfaces <int> | include MTU on each router
+2. Standardize both ends to match (commonly 1500 for Ethernet-based WAN, or whatever your ISP/link type specifies): interface Serial0/0/0 -> mtu 1500
+3. Re-test with a large ping using the do-not-fragment flag to confirm the issue is resolved: ping <dest> -l 1472 -f (should now succeed if 1500 fits)
+4. Re-test real application traffic (file transfer, web browsing) across the link.",Medium,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C050,Lab2_DHCP_DNS,DNS,Layer7,DNS forwarder to unreachable external resolver,Internal DNS server's forwarder address configured to an unreachable/incorrect external DNS IP,"Internal hostnames (e.g. fileserver.local) resolve fine, but external/internet domains (e.g. google.com) fail to resolve for all users.",nslookup (internal vs external) on a PC,"PC1> nslookup fileserver.local
+Server:  dns.local
+Address:  192.168.10.53
+Name:    fileserver.local
+Address:  192.168.10.50
+
+PC1> nslookup google.com
+Server:  dns.local
+Address:  192.168.10.53
+*** dns.local can't find google.com: Server failed","The internal DNS server correctly resolves its own local zone records, but its configured forwarder (used for anything outside its own zone) points to an unreachable or incorrect external DNS server, so external domain lookups consistently fail.","1. Confirm the pattern: internal names resolve, external names fail -- this narrows it to a forwarder issue rather than a general DNS outage
+2. Check the internal DNS server's forwarder/upstream setting in its configuration
+3. Correct it to a reachable, valid external resolver (e.g. the ISP's DNS or a public resolver like 8.8.8.8, assuming internet reachability exists from the DNS server itself)
+4. Confirm the DNS server itself has a working route to the internet: ping 8.8.8.8 from the DNS server
+5. Re-test with nslookup google.com from a client to confirm external resolution now works.",Medium,Synthetic template case - replace show_command_output with your own real Packet Tracer capture before submission,hands_on_lab
+C035,Lab1_TwoVLAN,VLAN/Routing,Layer2/3,Router-on-a-stick subinterface misconfig,Sub-interface Gi0/0.30 missing 'encapsulation dot1Q 30' or tagged with the wrong VLAN ID,"Hosts within VLAN 10 can talk to each other, hosts within VLAN 30 can talk to each other, but VLAN 10 cannot reach VLAN 30 and vice versa, even though the switch trunk and VLANs are correctly configured",Diagnostic approach (generic),"Check each router subinterface with 'show ip interface brief' (subinterfaces should show 'up/up') and 'show run | section interface Gi0/0' to confirm each subinterface has the correct 'encapsulation dot1Q <vlan-id>' matching the VLAN it should serve, and the correct IP for that VLAN's subnet. A common mistake is forgetting the encapsulation line entirely, tagging the wrong VLAN number, or omitting the 'native' keyword on the subinterface meant to carry the native VLAN.","One or more router subinterfaces in the router-on-a-stick setup have a missing/incorrect 802.1Q encapsulation VLAN tag, so the router isn't correctly routing traffic tagged for that VLAN","1. On the router, re-enter the subinterface: interface Gi0/0.30
+2. Set the correct encapsulation: encapsulation dot1Q 30
+3. Confirm/re-apply the IP address: ip address 192.168.30.1 255.255.255.0
+4. Verify with 'show ip interface brief' that all subinterfaces show up/up and with the right VLAN tag via 'show vlans' on the router
+5. Also confirm the switchport connecting to the router is trunked and allows all relevant VLANs.",High,"Generic/conceptual case - explain in your own words in the review log; no literal CLI capture required, but reasoning should reference realistic show-command fields",generic_conceptual
+C036,Lab1_TwoVLAN,VLAN/Routing,Layer2/3,Physical interface has IP instead of subinterfaces,IP address mistakenly configured on the physical Gi0/0 interface instead of on subinterfaces,"No inter-VLAN routing works at all; devices can't even reach the router from any VLAN, despite cabling and trunk being correct",Diagnostic approach (generic),Compare 'show run | section interface Gi0/0' against the router-on-a-stick design: the physical interface should generally have NO IP address (just 'no shutdown'); all addressing belongs on the subinterfaces. An IP on the physical parent interface alongside subinterfaces is a classic misconfiguration that breaks the 802.1Q tagging model on that port.,"IP address configured on the physical parent interface rather than on the VLAN subinterfaces, breaking the trunk encapsulation model","1. Remove the IP from the physical interface: interface Gi0/0 -> no ip address
+2. Ensure the physical interface is enabled: no shutdown
+3. Confirm each subinterface (Gi0/0.10, Gi0/0.30) has its own correct encapsulation and IP
+4. Re-verify with show ip interface brief and test inter-VLAN ping.",High,"Generic/conceptual case - explain in your own words in the review log; no literal CLI capture required, but reasoning should reference realistic show-command fields",generic_conceptual
+C037,Lab1_TwoVLAN,Routing,Layer3,L3 switch routing disabled,'ip routing' not enabled globally on a Layer 3 switch being used instead of a router,"SVIs (VLAN interfaces) on the L3 switch show 'up/up' and each VLAN works internally, but no traffic passes between VLANs",Diagnostic approach (generic),"On a Layer 3 switch, inter-VLAN routing requires the global command 'ip routing' -- without it, the switch will not route between SVIs even if configured correctly. Check with 'show ip route' or 'show run | include ip routing'; if the line is absent, routing is disabled at the switch level.","Global 'ip routing' is not enabled on the Layer 3 switch, so inter-VLAN traffic is never routed despite correctly configured SVIs","1. Confirm: show run | include ip routing (should be absent if this is the issue)
+2. Enable globally: configure terminal -> ip routing
+3. Verify each VLAN's SVI is up: show ip interface brief, and each 'interface vlan X' should be no shutdown with a valid IP
+4. Re-test inter-VLAN connectivity.",High,"Generic/conceptual case - explain in your own words in the review log; no literal CLI capture required, but reasoning should reference realistic show-command fields",generic_conceptual
+C038,Lab3_Routing,Routing,Layer3,Asymmetric/one-way static route,"Static route added only on Router A pointing to Router B's LAN, but no return route configured on Router B","Site A can successfully ping Site B's hosts, but Site B cannot ping back to Site A -- connectivity works in only one direction",Diagnostic approach (generic),"Check 'show ip route' on BOTH routers, not just the one where the problem was first noticed. If Router A has a route to Site B's subnet but Router B's table has no route back to Site A's subnet, replies can never return even though the initial request got through.",A static route exists in only one direction; the return path back to the originating subnet was never configured on the other router,"1. Check routing tables on both routers: show ip route on Router A AND Router B
+2. Add the missing static route on Router B: ip route <Site-A-subnet> <mask> <next-hop>
+3. Verify with show ip route on Router B
+4. Test bidirectionally to confirm symmetry.",Medium,"Generic/conceptual case - explain in your own words in the review log; no literal CLI capture required, but reasoning should reference realistic show-command fields",generic_conceptual
+C039,Lab3_Routing,Routing,Layer3,Duplicate OSPF router ID,Two routers accidentally configured with the same OSPF router ID,"OSPF neighbor relationships are unstable or fail to form correctly between more than 2 routers in the area, even though physical links and IP addressing are correct",Diagnostic approach (generic),Run 'show ip ospf' on each router and compare the 'Router ID' field. OSPF requires every router in the domain to have a unique router ID. Two routers sharing the same ID cause routing table corruption or flapping adjacencies.,"Two OSPF routers have an identical router ID, causing conflicting link-state advertisements and unstable adjacencies","1. Compare router IDs: show ip ospf on each router
+2. Manually set a unique router ID on the conflicting router: router ospf 1 -> router-id <unique-id>
+3. Force renegotiation: clear ip ospf process
+4. Verify with show ip ospf neighbor that adjacencies stabilize.",Medium,"Generic/conceptual case - explain in your own words in the review log; no literal CLI capture required, but reasoning should reference realistic show-command fields",generic_conceptual
+C040,Lab1_TwoVLAN,Switching/STP,Layer2,Spanning Tree blocking expected path,Redundant switch link causes STP to block a port that admin expected to be forwarding,"One switch-to-switch link appears physically connected and 'up', but traffic never seems to use it; after unplugging the 'main' link, there's a lengthy delay before traffic recovers",Diagnostic approach (generic),Run 'show spanning-tree' and look at port states (Blocking / Listening / Learning / Forwarding). A Blocking port is intentional STP behavior preventing a Layer 2 loop -- not necessarily a fault. The ~30-50s recovery delay with default STP timers can look like an outage to someone unfamiliar with STP convergence.,Spanning Tree Protocol is correctly blocking a redundant path to prevent a Layer 2 loop; the perceived 'fault' is expected STP convergence delay after a topology change,"1. Confirm with show spanning-tree which port is blocking and why (root bridge election, port cost, etc.)
+2. If this is intentional redundancy, document it rather than 'fixing' it
+3. If faster convergence is needed, enable PortFast on access-only ports, or switch to Rapid PVST+: spanning-tree mode rapid-pvst (reduces convergence from ~50s to a few seconds)
+4. Re-test failover time after the change.",Low,"Generic/conceptual case - explain in your own words in the review log; no literal CLI capture required, but reasoning should reference realistic show-command fields",generic_conceptual
+C041,Lab2_DHCP_DNS,DHCP,Layer3,Missing DHCP relay (ip helper-address),"DHCP server is on a different subnet/VLAN than the requesting clients, and the router has no 'ip helper-address' configured","Clients on a remote VLAN/subnet never receive an IP address via DHCP, while clients on the same subnet as the DHCP server work fine",Diagnostic approach (generic),"DHCP discovery messages are broadcasts, and routers don't forward broadcasts between subnets by default. Check the router interface facing the client's VLAN for an 'ip helper-address <dhcp-server-ip>' line with 'show run | section interface <vlan-int>'.","The router is not configured to relay DHCP broadcast requests to the remote DHCP server, so clients on other subnets never reach it","1. Identify the affected VLAN's router interface/SVI
+2. Add the relay: interface Vlan50 -> ip helper-address <DHCP-server-IP>
+3. This converts client broadcasts into a unicast forward to the DHCP server
+4. Release/renew on an affected client and confirm it now receives an address from the correct pool.",High,"Generic/conceptual case - explain in your own words in the review log; no literal CLI capture required, but reasoning should reference realistic show-command fields",generic_conceptual
+C042,Lab4_ACL_NAT,ACL/Routing,Layer3,ACL blocking routing protocol updates,An ACL applied on a transit interface unintentionally blocks OSPF/EIGRP multicast traffic,"Two routers that should be forming a routing adjacency never do, despite correct IP addressing, matching subnets, and matching routing protocol configuration on both sides",Diagnostic approach (generic),"Check 'show access-lists' and confirm whether an ACL on the transit interface permits the routing protocol's traffic (OSPF uses multicast 224.0.0.5/224.0.0.6, protocol 89; EIGRP uses 224.0.0.10). A broad deny or narrow permit-only-known-apps ACL silently blocks routing hellos with no obvious error.","An ACL on the link is blocking the routing protocol's multicast/protocol traffic, preventing the neighbor adjacency from forming","1. Review the ACL applied to the transit interface: show access-lists and show ip interface <int> | include access list
+2. Add an explicit permit for the routing protocol, placed ABOVE any deny statements: permit ospf any any (or permit the specific multicast group/protocol number)
+3. Re-verify: show ip ospf neighbor should progress toward FULL state
+4. Confirm routes are learned with show ip route.",High,"Generic/conceptual case - explain in your own words in the review log; no literal CLI capture required, but reasoning should reference realistic show-command fields",generic_conceptual
+C043,Lab4_ACL_NAT,NAT,Layer3,NAT/PAT port exhaustion,Too many simultaneous internal connections exceed available PAT translation ports on the single overloaded outside IP,"Internet access works fine most of the day but degrades or fails intermittently during peak hours, with some users unable to load pages while others are unaffected",Diagnostic approach (generic),Check 'show ip nat statistics' and 'show ip nat translations' during peak load; a very high 'Total active translations' count close to the practical PAT limit signals port exhaustion rather than a hard misconfiguration.,"The NAT overload (PAT) pool is running out of available translation ports during high-usage periods, causing intermittent new-connection failures","1. Confirm the pattern by checking translation counts during both normal and peak periods
+2. Options: (a) add a pool of multiple outside IPs instead of overloading a single one: ip nat pool OUTSIDE_POOL <ip-range> netmask ... then ip nat inside source list 1 pool OUTSIDE_POOL overload; (b) reduce translation timeout: ip nat translation timeout 300; (c) investigate/reduce unnecessary long-lived internal connections
+3. Re-monitor during peak hours after the change.",Medium,"Generic/conceptual case - explain in your own words in the review log; no literal CLI capture required, but reasoning should reference realistic show-command fields",generic_conceptual
+C044,Lab5_Wireless,Wireless,Layer2,Client isolation enabled,"AP has 'client isolation' (peer-to-peer blocking) enabled, intended for guest networks","Wireless clients can all reach the internet/gateway fine, but cannot see or communicate with each other or with wired devices on the same VLAN (e.g. can't print or access a shared folder)",Diagnostic approach (generic),"Check the AP/WLC's wireless security or advanced settings for a 'client isolation' or 'peer-to-peer blocking' option. Often enabled by default on guest SSIDs, but breaks legitimate local communication if mistakenly enabled on a main/corporate SSID.","Client isolation is enabled on the AP, intentionally blocking direct communication between wireless clients (and often wireless-to-wired on the same subnet)","1. Locate the isolation/peer-blocking setting in the AP or WLC configuration
+2. Disable it on SSIDs where peer communication is required (typical for corporate SSIDs)
+3. Keep it enabled only on guest/public SSIDs as a deliberate security measure
+4. Re-test peer-to-peer access (e.g. ping between two wireless clients, or a wireless client to a wired printer).",Medium,"Generic/conceptual case - explain in your own words in the review log; no literal CLI capture required, but reasoning should reference realistic show-command fields",generic_conceptual
+C045,Lab3_Routing,Gateway,Layer3,First-hop redundancy protocol misconfigured,Two routers configured for gateway redundancy (e.g. HSRP) have mismatched priority/group settings or a duplicate virtual IP conflict,"Under normal conditions everything works, but when the primary gateway router is taken down for maintenance, hosts lose connectivity entirely instead of failing over to the backup router",Diagnostic approach (generic),"Check 'show standby brief' on both routers. Confirm both are in the same HSRP group number, reference the same virtual IP, and priority/preempt settings are set so the backup takes over when the primary goes down. A mismatched group number or virtual IP means the routers never form a redundancy pair.","The first-hop redundancy protocol (e.g. HSRP) is misconfigured -- mismatched group numbers, virtual IP, or missing 'preempt' -- so failover to the backup router does not occur","1. Compare HSRP config on both routers: show standby brief
+2. Align the group and virtual IP: interface Gi0/0 -> standby 1 ip 192.168.10.254
+3. Set priorities so the intended primary wins: standby 1 priority 110 (on primary)
+4. Enable preempt so the higher-priority router reclaims active role once back online: standby 1 preempt
+5. Test failover by shutting down the primary's interface and confirming the backup takes over the virtual IP.",High,"Generic/conceptual case - explain in your own words in the review log; no literal CLI capture required, but reasoning should reference realistic show-command fields",generic_conceptual
